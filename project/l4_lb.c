@@ -36,6 +36,14 @@ static const char *const usages[] = {
     NULL,
 };
 
+// Struct that describes the single backend server
+struct srv_stats
+{
+    __u32 ip;
+    __u32 assigned_flows;
+    __u32 received_packets;
+};
+
 struct backend {
     const char *ip;
 };
@@ -132,10 +140,15 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
 
         // Select index and content of the map entry
         uint32_t index = i;
-        uint32_t address = ip.s_addr;
+        struct srv_stats server;
+
+        // Init the stats
+        server.ip = ip.s_addr;
+        server.assigned_flows = 0;
+        server.received_packets = 0;
 
         // Insert the value into the map
-        result = bpf_map_update_elem(ips_map_fd, &index, &address, BPF_ANY);
+        result = bpf_map_update_elem(ips_map_fd, &index, &server, BPF_ANY);
 
         // Check the operation result
         if(result != 0)
