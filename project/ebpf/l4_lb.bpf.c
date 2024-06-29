@@ -37,10 +37,7 @@ static __always_inline int parse_ethhdr(void *data, void *data_end, __u16 *nh_of
     int hdr_size = sizeof(*eth);
 
     // Check that the packet dimension (struct known one) does not exceed the actual packet length
-    if ((void *)eth + hdr_size > data_end)
-    {
-        return -1;
-    }
+    if ((void *)eth + hdr_size > data_end){ return -1; }
 
     // Increase the offset and assign the parsed header
     *nh_off += hdr_size;
@@ -55,25 +52,41 @@ static __always_inline int parse_iphdr(void *data, void *data_end, __u16 *nh_off
     int hdr_size;
 
     // Check that the nominal packet header structure does not exceed the maximum actual limit of the packet
-    if ((void *)ip + sizeof(*ip) > data_end)
-        return -1;
+    if ((void *)ip + sizeof(*ip) > data_end) { return -1; }
 
     // Compute the header size
     hdr_size = ip->ihl * 4;
 
     // Check if the header size field is legit
-    if(hdr_size < sizeof(*ip))
-        return -1;
+    if(hdr_size < sizeof(*ip)) { return -1; }
 
     // Check if the registered header size does not exceed the maximum actual limit of the packet
-    if ((void *)ip + hdr_size > data_end)
-        return -1;
+    if ((void *)ip + hdr_size > data_end) { return -1; }
 
     // Increase the offset and assign the parsed header
     *nh_off += hdr_size;
     *iphdr = ip;
 
     return ip->protocol;
+}
+
+// This function parses the udp header checking also the packet boundaries
+static __always_inline int parse_udphdr(void *data, void *data_end, __u16 *nh_off, struct udphdr **udphdr) {
+    struct udphdr *udp = data + *nh_off;
+    int hdr_size = sizeof(*udp);
+
+    // Check that the nominal packet header strucure does not exceed the maximum actual limit of the packet
+    if ((void *)udp + hdr_size > data_end){ return -1; }
+
+    // Increase the offset and assign the parsed header
+    *nh_off += hdr_size;
+    *udphdr = udp;
+
+    // Check packet length field
+    int len = bpf_ntohs(udp->len) - sizeof(struct udphdr);
+    if (len < 0){ return -1; }
+
+    return len;
 }
 
 SEC("xdp")
@@ -88,8 +101,6 @@ int l4_lb(struct xdp_md *ctx) {
     struct ethhdr* eth;
     int eth_type;
 
-    bpf_printk("Packet Received!\n");
-
     // Parse the ethernet header and check
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
     if(eth_type != bpf_ntohs(ETH_P_IP))
@@ -97,8 +108,6 @@ int l4_lb(struct xdp_md *ctx) {
         // TODO if not PASS, ICMP fails in ARP request and does not send the ping, decide if it is okay to maintain
         return XDP_PASS;
     }
-
-    bpf_printk("Packet is IPv4!\n");
 
     // Check if the packet is UDP
     int ip_type;
@@ -112,6 +121,16 @@ int l4_lb(struct xdp_md *ctx) {
     }
 
     // Parse the UDP packet
+    struct udphdr* udp;
+    int len = parse_udphdr(data, data_end, &nf_off, &udp);
+
+    // Check UDP packet length
+    if(len < 0)
+    {
+        return XDP_DROP;
+    }
+
+    bpf_printk("Packet is UDP! %d\n", bpf_ntohs(udp->dest));
 
     // Load balancing decisions
 
