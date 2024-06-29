@@ -94,8 +94,8 @@ int l4_lb(struct xdp_md *ctx) {
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
     if(eth_type != bpf_ntohs(ETH_P_IP))
     {
-        bpf_printk("Parsed: %d\n", bpf_ntohs(eth_type));
-        return XDP_DROP;
+        // TODO if not PASS, ICMP fails in ARP request and does not send the ping, decide if it is okay to maintain
+        return XDP_PASS;
     }
 
     bpf_printk("Packet is IPv4!\n");
