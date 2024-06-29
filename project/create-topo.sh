@@ -88,5 +88,5 @@ for (( i=2; i<=$total_ips;i++ )); do
 
 
   sudo ip netns exec ns${i} ifconfig veth${i}_ ${ip}/24 
-  config_gtw "${ip}" ${i}
+  config_gtw ${ip} ${i}
 done
