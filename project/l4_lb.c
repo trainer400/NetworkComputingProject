@@ -41,7 +41,7 @@ struct srv_stats
 {
     __u32 ip;
     __u32 assigned_flows;
-    __u32 received_packets;
+    __u32 assigned_pkts;
 };
 
 struct backend {
@@ -112,7 +112,7 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
     }
 
     // Get the map file descriptor
-    int ips_map_fd = bpf_map__fd(skel->maps.server_ips);
+    int ips_map_fd = bpf_map__fd(skel->maps.srv_ips);
 
     // Check the retrieved map file descriptor
     if(ips_map_fd < 0)
@@ -145,7 +145,7 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
         // Init the stats
         server.ip = ip.s_addr;
         server.assigned_flows = 0;
-        server.received_packets = 0;
+        server.assigned_pkts = 0;
 
         // Insert the value into the map
         result = bpf_map_update_elem(ips_map_fd, &index, &server, BPF_ANY);
