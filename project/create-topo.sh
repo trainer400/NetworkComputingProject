@@ -35,25 +35,9 @@ function config_gtw {
   # Create the final IP string
   fIP=""
 
-  # Split the IP
-  count=0
+  # Split the IP and position in discarding the last byte
   read -ra ip <<< "$1"
-  for number in "${ip[@]}"; do
-    count=$((1 + $count))
-
-    # For every IP byte, if it is the fourth one (the last one) the it is changed with 254
-    if [ $count -eq "4" ]
-    then
-      fIP="${fIP}.254"
-    else
-      if [ $count -eq "1" ]
-      then
-        fIP="$number"
-      else
-        fIP="${fIP}.${number}"
-      fi
-    fi
-  done
+  fIP="${ip[0]}.${ip[1]}.${ip[2]}.254"
 
   # Reset the separation character
   IFS=','
