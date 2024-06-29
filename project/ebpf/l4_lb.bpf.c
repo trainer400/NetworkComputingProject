@@ -27,7 +27,16 @@ __uint(max_entries, MAX_SERVER_NUM);
 
 SEC("xdp")
 int l4_lb(struct xdp_md *ctx) {
-    bpf_printk("Packet received\n");
+
+    // Lookup of the map
+    int key = 3;
+    uint32_t *result = bpf_map_lookup_elem(&server_ips, &key);
+    if(!result)
+    {
+        return XDP_ABORTED;
+    }
+
+    bpf_printk("Packet %d\n", *result);
 
     return XDP_DROP;
 }
