@@ -13,6 +13,18 @@
 #include <stddef.h>
 #include <stdint.h>
 
+#define MAX_SERVER_NUM 1000
+
+// Intersection map between userspace program and the BPF load balancer. In this map, the servers IPs are stored from the yaml parsed file
+struct 
+{
+__uint(type, BPF_MAP_TYPE_ARRAY);
+__type(key, __u32);
+__type(value, __u32);
+__uint(max_entries, MAX_SERVER_NUM);
+} server_ips SEC(".maps");
+
+
 SEC("xdp")
 int l4_lb(struct xdp_md *ctx) {
     bpf_printk("Packet received\n");

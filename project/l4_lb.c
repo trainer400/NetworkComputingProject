@@ -103,6 +103,52 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
         ret = EXIT_FAILURE;
     }
 
+    // Get the map file descriptor
+    int ips_map_fd = bpf_map__fd(skel->maps.server_ips);
+
+    // Check the retrieved map file descriptor
+    if(ips_map_fd < 0)
+    {
+        log_error("Failed to get file descriptor of BPF server IPS map %s", strerror(errno));
+        ret = EXIT_FAILURE;
+        goto cleanup_yaml;
+    }
+
+    // For every ip in the backend, add an entry into the map
+    // TODO add check for max server number
+    for (int i = 0; i < ips->backends_count; i++)
+    {
+        // Convert the IPv4 IP to a 32bit integer
+        struct in_addr ip;
+        int result = inet_pton(AF_INET, ips->backends[i].ip, &ip);
+
+        // Check the coversion result
+        if(result != 1)
+        {
+            log_error("Failed converting the backend IP %s to 32bit integer", ips->backends[i].ip);
+            ret = EXIT_FAILURE;
+            goto cleanup_yaml;
+        }
+
+        // Select index and content of the map entry
+        uint32_t index = i;
+        uint32_t address = ip.s_addr;
+
+        // Insert the value into the map
+        result = bpf_map_update_elem(ips_map_fd, &index, &address, BPF_ANY);
+
+        // Check the operation result
+        if(result != 0)
+        {
+            log_error("Failed to add backend IP %s to the map", strerror(errno));
+            ret = EXIT_FAILURE;
+            goto cleanup_yaml;
+        }
+
+        log_info("Loaded IP %s as %d", ips->backends[i].ip, ip.s_addr);
+    }
+
+cleanup_yaml:
     // Free the memory for the yaml configuration file
     cyaml_free(&config, &top_schema, ips, 0);
 

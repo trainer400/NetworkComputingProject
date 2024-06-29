@@ -13,3 +13,6 @@
  - `__sync_fetch_and_add(void * ptr, int num)` si utilizza per fetchare e scrivere una variabile in modo sincrono;
  - `bpf_map__fd(const struct bpf_map *map)` permette di ottenere il file descriptor di una mappa partendo dallo skeleton (`skel->maps.<map_name>`);
  - `sudo ip netns exec ns1 ./<nome_programma> -i veth1_` deve essere usato al posto di `sudo ./<nome_programma> -i veth1`;
+
+# Design load balancer
+ - Probabilmente una buona soluzione per ottenere il risultato richiesto è quella di implementare una hash table in cui i vari flow sono associati al numero di pacchetti che hanno ricevuto ed al server a cui sono stati indirizzati. Per avere complessità più vicina a O(1) all'arrivo di un pacchetto, potrebbe essere una buona idea mantere una tabella in cui si memorizza quanti flow sono stati associati per server e quanti pacchetti sono stati ricevuti, in modo tale da riuscire ad eseguire un lookup abbastanza veloce all'arrivo del singolo pacchetto. 
