@@ -12,32 +12,52 @@
 #include <linux/udp.h>
 #include <stddef.h>
 #include <stdint.h>
+#include <math.h>
 
-#define MAX_SERVER_NUM 1000
+#define MAX_SERVER_NUM 100
+#define MAX_FLOWS 200
 
-struct srv_stats
-{
+struct srv_stats {
     __u32 ip;
     __u32 assigned_flows;
     __u32 assigned_pkts;
 };
 
-// Intersection map between userspace program and the BPF load balancer. In this map, the servers IPs are stored from the yaml parsed file
-struct 
-{
-__uint(type, BPF_MAP_TYPE_ARRAY);
-__type(key, __u32);
-__type(value, struct srv_stats);
-__uint(max_entries, MAX_SERVER_NUM);
+// Struct key to define the flow.
+struct flow {
+    __u32 saddr;
+    __u32 daddr;
+    __u16 sprt;
+    __u16 dprt;
+    __u16 proto;
+};
+
+// Intersection map between userspace program and the BPF load balancer. In this map, the servers
+// IPs are stored from the yaml parsed file
+struct {
+    __uint(type, BPF_MAP_TYPE_ARRAY);
+    __type(key, __u32);
+    __type(value, struct srv_stats);
+    __uint(max_entries, MAX_SERVER_NUM);
 } srv_ips SEC(".maps");
 
+struct {
+    __uint(type, BPF_MAP_TYPE_HASH);
+    __type(key, struct flow);
+    __type(value, __u32);
+    __uint(max_entries, MAX_FLOWS);
+} load_allocs SEC(".maps");
+
 // The function parses the ethernet header checking also the packet boundaries
-static __always_inline int parse_ethhdr(void *data, void *data_end, __u16 *nh_off, struct ethhdr **ethhdr) {
+static __always_inline int parse_ethhdr(void *data, void *data_end, __u16 *nh_off,
+                                        struct ethhdr **ethhdr) {
     struct ethhdr *eth = (struct ethhdr *)data;
     int hdr_size = sizeof(*eth);
 
     // Check that the packet dimension (struct known one) does not exceed the actual packet length
-    if ((void *)eth + hdr_size > data_end){ return -1; }
+    if ((void *)eth + hdr_size > data_end) {
+        return -1;
+    }
 
     // Increase the offset and assign the parsed header
     *nh_off += hdr_size;
@@ -47,21 +67,29 @@ static __always_inline int parse_ethhdr(void *data, void *data_end, __u16 *nh_of
 }
 
 // The function parses the ip header checking also the packet boundaries
-static __always_inline int parse_iphdr(void *data, void *data_end, __u16 *nh_off, struct iphdr **iphdr) {
+static __always_inline int parse_iphdr(void *data, void *data_end, __u16 *nh_off,
+                                       struct iphdr **iphdr) {
     struct iphdr *ip = data + *nh_off;
     int hdr_size;
 
-    // Check that the nominal packet header structure does not exceed the maximum actual limit of the packet
-    if ((void *)ip + sizeof(*ip) > data_end) { return -1; }
+    // Check that the nominal packet header structure does not exceed the maximum actual limit of
+    // the packet
+    if ((void *)ip + sizeof(*ip) > data_end) {
+        return -1;
+    }
 
     // Compute the header size
     hdr_size = ip->ihl * 4;
 
     // Check if the header size field is legit
-    if(hdr_size < sizeof(*ip)) { return -1; }
+    if (hdr_size < sizeof(*ip)) {
+        return -1;
+    }
 
     // Check if the registered header size does not exceed the maximum actual limit of the packet
-    if ((void *)ip + hdr_size > data_end) { return -1; }
+    if ((void *)ip + hdr_size > data_end) {
+        return -1;
+    }
 
     // Increase the offset and assign the parsed header
     *nh_off += hdr_size;
@@ -71,12 +99,16 @@ static __always_inline int parse_iphdr(void *data, void *data_end, __u16 *nh_off
 }
 
 // This function parses the udp header checking also the packet boundaries
-static __always_inline int parse_udphdr(void *data, void *data_end, __u16 *nh_off, struct udphdr **udphdr) {
+static __always_inline int parse_udphdr(void *data, void *data_end, __u16 *nh_off,
+                                        struct udphdr **udphdr) {
     struct udphdr *udp = data + *nh_off;
     int hdr_size = sizeof(*udp);
 
-    // Check that the nominal packet header strucure does not exceed the maximum actual limit of the packet
-    if ((void *)udp + hdr_size > data_end){ return -1; }
+    // Check that the nominal packet header strucure does not exceed the maximum actual limit of the
+    // packet
+    if ((void *)udp + hdr_size > data_end) {
+        return -1;
+    }
 
     // Increase the offset and assign the parsed header
     *nh_off += hdr_size;
@@ -84,55 +116,129 @@ static __always_inline int parse_udphdr(void *data, void *data_end, __u16 *nh_of
 
     // Check packet length field
     int len = bpf_ntohs(udp->len) - sizeof(struct udphdr);
-    if (len < 0){ return -1; }
+    if (len < 0) {
+        return -1;
+    }
 
     return len;
+}
+
+static __always_inline __u32 find_best_load_serv() {
+    __u32 best = 0;
+    __u32 best_load = 0xffffffff; // Infinity
+
+    // Need for a counter to avoid BPF thinking that this is an infinite loop
+    __u32 counter = 0;
+    for (__u32 i = 0; i < MAX_SERVER_NUM; i++) {
+        // Retrieve the stats
+        struct srv_stats *stats = bpf_map_lookup_elem(&srv_ips, &counter);
+
+        if (stats != NULL) {
+            // Check if the retrieved IP is null, which means that the program parsed all the
+            // available servers
+            if (stats->ip == 0) {
+                break;
+            }
+
+            // Check if the stats are better and in case substitute the best option
+            __u32 load = 0 ? stats->assigned_pkts == 0 || stats->assigned_flows
+                           : stats->assigned_pkts / stats->assigned_flows;
+            if (load < best_load) {
+                best = counter;
+                best_load = load;
+            }
+        }
+
+        counter++;
+    }
+
+    return best;
+}
+
+static __always_inline int assign_backend(struct udphdr *udp, struct iphdr *ip) {
+    // Define the requested flow
+    struct flow flow;
+    flow.sprt = bpf_ntohs(udp->source);
+    flow.dprt = bpf_ntohs(udp->dest);
+    flow.saddr = ip->addrs.saddr;
+    flow.daddr = ip->addrs.daddr;
+    flow.proto = ip->protocol;
+
+    // Check if already allocated
+    int *res = bpf_map_lookup_elem(&load_allocs, &flow);
+
+    // If the flow is already present, assign to the packet the predefined backend
+    if (res != NULL) {
+        // Increase the amount of packets for the current server
+        struct srv_stats *stats = bpf_map_lookup_elem(&srv_ips, res);
+
+        // If the stats are not null, update the assigned packets
+        if (stats != NULL) {
+            __sync_fetch_and_add(&stats->assigned_pkts, 1);
+        }
+
+        return *res;
+    }
+
+    // Find the server with the best load to assign the new flow to
+    __u32 best_srv = find_best_load_serv();
+
+    // Update the stats
+    struct srv_stats *stats = bpf_map_lookup_elem(&srv_ips, &best_srv);
+
+    if (stats != NULL) {
+        __sync_fetch_and_add(&stats->assigned_pkts, 1);
+        __sync_fetch_and_add(&stats->assigned_flows, 1);
+    }
+
+    // Add the flow into the flow map
+    // TODO decide if it adds value to know wether the operation has success
+    int ret = bpf_map_update_elem(&load_allocs, &flow, &best_srv, BPF_NOEXIST);
+
+    return best_srv;
 }
 
 SEC("xdp")
 int l4_lb(struct xdp_md *ctx) {
 
     // Extract packet starting and ending addresses
-    void *data_end = (void*)(long)ctx->data_end;
-    void *data = (void*)(long)ctx->data;
+    void *data_end = (void *)(long)ctx->data_end;
+    void *data = (void *)(long)ctx->data;
 
     // Check if the packet is IPv4
     __u16 nf_off = 0;
-    struct ethhdr* eth;
+    struct ethhdr *eth;
     int eth_type;
 
     // Parse the ethernet header and check
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
-    if(eth_type != bpf_ntohs(ETH_P_IP))
-    {
-        // TODO if not PASS, ICMP fails in ARP request and does not send the ping, decide if it is okay to maintain
+    if (eth_type != bpf_ntohs(ETH_P_IP)) {
+        // TODO if not PASS, ICMP fails in ARP request and does not send the ping, decide if it is
+        // okay to maintain
         return XDP_PASS;
     }
 
     // Check if the packet is UDP
     int ip_type;
-    struct iphdr* ip;
+    struct iphdr *ip;
 
     // Parse the ip header and check
     ip_type = parse_iphdr(data, data_end, &nf_off, &ip);
-    if(ip_type != IPPROTO_UDP)
-    {
+    if (ip_type != IPPROTO_UDP) {
         return XDP_DROP;
     }
 
     // Parse the UDP packet
-    struct udphdr* udp;
+    struct udphdr *udp;
     int len = parse_udphdr(data, data_end, &nf_off, &udp);
 
     // Check UDP packet length
-    if(len < 0)
-    {
+    if (len < 0) {
         return XDP_DROP;
     }
 
-    bpf_printk("Packet is UDP! %d\n", bpf_ntohs(udp->dest));
-
     // Load balancing decisions
+    int alloc = assign_backend(udp, ip);
 
     // Packet IP-in-IP encapsulation
 

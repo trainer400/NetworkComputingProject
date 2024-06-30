@@ -37,8 +37,7 @@ static const char *const usages[] = {
 };
 
 // Struct that describes the single backend server
-struct srv_stats
-{
+struct srv_stats {
     __u32 ip;
     __u32 assigned_flows;
     __u32 assigned_pkts;
@@ -115,8 +114,7 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
     int ips_map_fd = bpf_map__fd(skel->maps.srv_ips);
 
     // Check the retrieved map file descriptor
-    if(ips_map_fd < 0)
-    {
+    if (ips_map_fd < 0) {
         log_error("Failed to get file descriptor of BPF server IPS map %s", strerror(errno));
         ret = EXIT_FAILURE;
         goto cleanup_yaml;
@@ -124,15 +122,13 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
 
     // For every ip in the backend, add an entry into the map
     // TODO add check for max server number
-    for (int i = 0; i < ips->backends_count; i++)
-    {
+    for (int i = 0; i < ips->backends_count; i++) {
         // Convert the IPv4 IP to a 32bit integer
         struct in_addr ip;
         int result = inet_pton(AF_INET, ips->backends[i].ip, &ip);
 
         // Check the coversion result
-        if(result != 1)
-        {
+        if (result != 1) {
             log_error("Failed converting the backend IP %s to 32bit integer", ips->backends[i].ip);
             ret = EXIT_FAILURE;
             goto cleanup_yaml;
@@ -151,8 +147,7 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
         result = bpf_map_update_elem(ips_map_fd, &index, &server, BPF_ANY);
 
         // Check the operation result
-        if(result != 0)
-        {
+        if (result != 0) {
             log_error("Failed to add backend IP %s to the map", strerror(errno));
             ret = EXIT_FAILURE;
             goto cleanup_yaml;
