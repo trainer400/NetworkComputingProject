@@ -86,7 +86,7 @@ static __always_inline int parse_iphdr(void *data, void *data_end, __u16 *nh_off
         return -1;
     }
 
-    // Check if the registered header size does not exceed the maximum actual limit of the packet
+    // Check if the registered header size does exceed the maximum actual limit of the packet
     if ((void *)ip + hdr_size > data_end) {
         return -1;
     }
@@ -155,7 +155,7 @@ static __always_inline __u32 find_best_load_serv() {
     return best;
 }
 
-static __always_inline int assign_backend(struct udphdr *udp, struct iphdr *ip) {
+static __always_inline __u32 assign_backend(struct udphdr *udp, struct iphdr *ip) {
     // Define the requested flow
     struct flow flow;
     flow.sprt = bpf_ntohs(udp->source);
@@ -198,6 +198,55 @@ static __always_inline int assign_backend(struct udphdr *udp, struct iphdr *ip) 
     return best_srv;
 }
 
+static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **eth, struct iphdr **ip) 
+{
+    // Define the byte shift as the dimension of the header. The teory is to copy the ip header, 
+    // enlarge the packet of the same dimension, copy the IP and UDP data in a shifted position 
+    // and add the new IP header for encapsulation
+    long shift = sizeof(struct iphdr);
+
+    // Copy the ethernet header to shift
+    struct ethhdr eth_cpy;
+    __builtin_memcpy(&eth_cpy, *eth, sizeof(eth_cpy));
+
+    // Copy the ip header to shift
+    struct iphdr ip_cpy;
+    __builtin_memcpy(&ip_cpy, *ip, sizeof(ip_cpy));
+
+    // Enlarge the packet to insert another IP header
+    if(bpf_xdp_adjust_head(ctx, -shift)){
+        return -1;
+    }
+    
+    // Update the ethernet pointer position
+    *eth = (void*)(long)ctx->data;
+    void *data_end = (void*)(long)ctx->data_end;
+
+    // Perform new bound checks
+    if((void*)(*eth) + sizeof(struct ethhdr) > data_end){
+        return -1;
+    }
+
+    // Copy the ethernet header in first position
+    __builtin_memcpy(*eth, &eth_cpy, sizeof(struct ethhdr));
+
+    // Update the ip pointer position
+    *ip = (void*)(long)ctx->data + sizeof(struct ethhdr);
+
+    // Copy the IP in position
+    if((void*)*ip + sizeof(struct iphdr) > data_end){
+        return -1;
+    }
+    __builtin_memcpy(*ip, &ip_cpy, sizeof(struct iphdr));
+
+    return 0;
+}
+
+static __always_inline void set_IP_hdr(__u32 srv_alloc, struct iphdr *ip)
+{
+    
+}
+
 SEC("xdp")
 int l4_lb(struct xdp_md *ctx) {
 
@@ -213,8 +262,8 @@ int l4_lb(struct xdp_md *ctx) {
     // Parse the ethernet header and check
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
     if (eth_type != bpf_ntohs(ETH_P_IP)) {
-        // TODO if not PASS, ICMP fails in ARP request and does not send the ping, decide if it is
-        // okay to maintain
+        // TODO if not PASS, ICMP fails in ARP request and does not send the ping, 
+        // decide if it is okay to maintain
         return XDP_PASS;
     }
 
@@ -238,9 +287,15 @@ int l4_lb(struct xdp_md *ctx) {
     }
 
     // Load balancing decisions
-    int alloc = assign_backend(udp, ip);
+    __u32 alloc = assign_backend(udp, ip);
 
     // Packet IP-in-IP encapsulation
+    if(!encapsulate_IP(ctx, &eth, &ip)){
+        return XDP_DROP;
+    }
+
+    // Change destination IP and recompute the checksum
+
 
     // Packet send
 
