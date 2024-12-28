@@ -136,8 +136,9 @@ static __always_inline __u32 find_best_load_serv() {
             }
 
             // Check if the stats are better and in case substitute the best option
-            __u32 load = 0 ? stats->assigned_pkts == 0 || stats->assigned_flows
-                           : stats->assigned_pkts / stats->assigned_flows;
+            __u32 load =
+                stats->assigned_flows == 0 ? 0 : stats->assigned_pkts / stats->assigned_flows;
+
             if (load < best_load) {
                 best = counter;
                 best_load = load;
@@ -180,6 +181,8 @@ static __always_inline __u32 assign_backend(struct udphdr *udp, struct iphdr *ip
 
     // Update the stats
     struct srv_stats *stats = bpf_map_lookup_elem(&srv_ips, &best_srv);
+
+    bpf_printk("New flow detected, assigning server: %d", best_srv);
 
     if (stats != NULL) {
         __sync_fetch_and_add(&stats->assigned_pkts, 1);
@@ -278,13 +281,17 @@ int l4_lb(struct xdp_md *ctx) {
         return XDP_DROP;
     }
 
+    // TODO: remove the port filtering condition (DEBUG)
+    if (bpf_ntohs(udp->dest) < 100 || bpf_ntohs(udp->dest) > 1000)
+        return XDP_DROP;
+
     // Load balancing decisions
     __u32 alloc = assign_backend(udp, ip);
 
-    // Packet IP-in-IP encapsulation
-    if (!encapsulate_IP(ctx, &eth, &ip)) {
-        return XDP_DROP;
-    }
+    // // Packet IP-in-IP encapsulation
+    // if (!encapsulate_IP(ctx, &eth, &ip)) {
+    //     return XDP_DROP;
+    // }
 
     // Change destination IP and recompute the checksum
 

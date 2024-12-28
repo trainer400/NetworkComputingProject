@@ -58,11 +58,12 @@ def main():
         print("Mac address for %s was not found in the ARP table" % addr)
         exit(1)
 
-    pkt = Ether(src=get_if_hwaddr(iface), dst=ether_dst)
-    pkt = pkt /IP(dst=addr,tos=tos) /UDP(dport=123) /message
-
     for _ in range(packets):
-        print("Sending on interface %s to %s" % (iface, str(addr)))
+        # Setup the packet
+        pkt = Ether(src=get_if_hwaddr(iface), dst=ether_dst)
+        pkt = pkt /IP(dst=addr,tos=tos) /UDP(dport=123 + _) /message
+        
+        print("Sending on interface %s to %s port: %s" % (iface, str(addr), 123 +_))
         sendp(pkt, iface=iface, verbose=False)
 
 

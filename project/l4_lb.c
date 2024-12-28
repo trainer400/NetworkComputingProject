@@ -27,6 +27,9 @@
 // Load the compiled bpf skeleton
 #include "l4_lb.skel.h"
 
+#define MAX_SERVER_NUM 100
+#define MAX_FLOWS 200
+
 static int ifindex_iface = 0;
 static __u32 xdp_flags = 0;
 
@@ -118,6 +121,26 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
         log_error("Failed to get file descriptor of BPF server IPS map %s", strerror(errno));
         ret = EXIT_FAILURE;
         goto cleanup_yaml;
+    }
+
+    // Set the initial values for the map
+    for (int i = 0; i < MAX_SERVER_NUM; i++) {
+        struct srv_stats server;
+
+        // Init the stats
+        server.ip = 0;
+        server.assigned_flows = 0;
+        server.assigned_pkts = 0;
+
+        // Insert the value into the map
+        int result = bpf_map_update_elem(ips_map_fd, &i, &server, BPF_ANY);
+
+        // Check the operation result
+        if (result != 0) {
+            log_error("Failed reset the map", strerror(errno));
+            ret = EXIT_FAILURE;
+            goto cleanup_yaml;
+        }
     }
 
     // For every ip in the backend, add an entry into the map
