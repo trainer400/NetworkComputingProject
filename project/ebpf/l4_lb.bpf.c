@@ -200,16 +200,10 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
                                           struct iphdr **ip) {
     // Define the byte shift as the dimension of the header. The teory is to copy the ip header,
     // enlarge the packet of the same dimension, copy the IP and UDP data in a shifted position
-    // and add the new IP header for encapsulation
+    // and add the new IP header for encapsulation.
+    // IMPORTANT: Options are dropped due to IHL forced to 5 due to __builtin_memcpy that needs
+    // constexpr values as dimension.
     long shift = sizeof(struct iphdr);
-
-    // Copy the ethernet header to shift
-    struct ethhdr eth_cpy;
-    __builtin_memcpy(&eth_cpy, *eth, sizeof(eth_cpy));
-
-    // Copy the ip header to shift
-    struct iphdr ip_cpy;
-    __builtin_memcpy(&ip_cpy, *ip, sizeof(ip_cpy));
 
     // Enlarge the packet to insert another IP header
     if (bpf_xdp_adjust_head(ctx, -shift)) {
@@ -217,25 +211,38 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     }
 
     // Update the ethernet pointer position
-    *eth = (void *)(long)ctx->data;
+    void *data = (void *)(long)ctx->data;
     void *data_end = (void *)(long)ctx->data_end;
 
+    // Compute the new positions
+    void *new_eth = data;
+    void *new_ip = data + sizeof(struct ethhdr);
+
     // Perform new bound checks
-    if ((void *)(*eth) + sizeof(struct ethhdr) > data_end) {
+    if (new_eth + sizeof(struct ethhdr) > data_end) {
         return -1;
     }
 
     // Copy the ethernet header in first position
-    __builtin_memcpy(*eth, &eth_cpy, sizeof(struct ethhdr));
+    __builtin_memcpy(new_eth, *eth, sizeof(struct ethhdr));
 
-    // Update the ip pointer position
-    *ip = (void *)(long)ctx->data + sizeof(struct ethhdr);
+    // Update the eth pointer
+    *eth = new_eth;
 
-    // Copy the IP in position
-    if ((void *)*ip + sizeof(struct iphdr) > data_end) {
+    // Check the IP boundaries
+    if ((void *)new_ip + shift > data_end) {
         return -1;
     }
-    __builtin_memcpy(*ip, &ip_cpy, sizeof(struct iphdr));
+
+    // Copy the IP header in its new position
+    __builtin_memcpy(new_ip, *ip, shift);
+
+    // Update the ip pointer
+    *ip = new_ip;
+
+    // Set IHL forcefully to 5 (IMPLEMENT A custom memcpy knowing that the options field is at max
+    // 40 bytes to surpass this limit)
+    (*ip)->ihl = sizeof(struct iphdr) / 4;
 
     return 0;
 }
@@ -288,10 +295,10 @@ int l4_lb(struct xdp_md *ctx) {
     // Load balancing decisions
     __u32 alloc = assign_backend(udp, ip);
 
-    // // Packet IP-in-IP encapsulation
-    // if (!encapsulate_IP(ctx, &eth, &ip)) {
-    //     return XDP_DROP;
-    // }
+    // Packet IP-in-IP encapsulation
+    if (encapsulate_IP(ctx, &eth, &ip)) {
+        return XDP_DROP;
+    }
 
     // Change destination IP and recompute the checksum
 
