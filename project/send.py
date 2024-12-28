@@ -58,7 +58,7 @@ def main():
         print("Mac address for %s was not found in the ARP table" % addr)
         exit(1)
 
-    pkt =  Ether(src=get_if_hwaddr(iface), dst=ether_dst)
+    pkt = Ether(src=get_if_hwaddr(iface), dst=ether_dst)
     pkt = pkt /IP(dst=addr,tos=tos) /UDP(dport=123) /message
 
     for _ in range(packets):
