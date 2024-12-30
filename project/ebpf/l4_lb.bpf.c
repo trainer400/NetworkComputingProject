@@ -256,6 +256,18 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     return 0;
 }
 
+static __always_inline int swap_mac(struct ethhdr *eth) {
+
+    unsigned char temp[ETH_ALEN];
+
+    // Swap the addresses using the tmp variable
+    __builtin_memcpy(&temp, &eth->h_source, ETH_ALEN);
+    __builtin_memcpy(&eth->h_source, &eth->h_dest, ETH_ALEN);
+    __builtin_memcpy(&eth->h_dest, &temp, ETH_ALEN);
+
+    return 0;
+}
+
 static __always_inline void set_IP_hdr(__u32 srv_alloc, struct iphdr *ip) {}
 
 SEC("xdp")
@@ -306,6 +318,11 @@ int l4_lb(struct xdp_md *ctx) {
 
     // Packet IP-in-IP encapsulation
     if (encapsulate_IP(ctx, &eth, &ip)) {
+        return XDP_DROP;
+    }
+
+    // Swap source mac and dest mac
+    if (swap_mac(eth)) {
         return XDP_DROP;
     }
 
