@@ -205,6 +205,12 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     // constexpr values as dimension.
     long shift = sizeof(struct iphdr);
 
+    // Copy the ETH and IP headers before invalidating the pointers
+    struct ethhdr eth_cpy;
+    struct iphdr ip_cpy;
+    __builtin_memcpy(&eth_cpy, *eth, sizeof(struct ethhdr));
+    __builtin_memcpy(&ip_cpy, *ip, sizeof(struct iphdr));
+
     // Enlarge the packet to insert another IP header
     if (bpf_xdp_adjust_head(ctx, -shift)) {
         return -1;
@@ -224,7 +230,7 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     }
 
     // Copy the ethernet header in first position
-    __builtin_memcpy(new_eth, *eth, sizeof(struct ethhdr));
+    __builtin_memcpy(new_eth, &eth_cpy, sizeof(struct ethhdr));
 
     // Update the eth pointer
     *eth = new_eth;
@@ -235,7 +241,7 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     }
 
     // Copy the IP header in its new position
-    __builtin_memcpy(new_ip, *ip, shift);
+    __builtin_memcpy(new_ip, &ip_cpy, shift);
 
     // Update the ip pointer
     *ip = new_ip;
