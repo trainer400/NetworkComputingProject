@@ -250,6 +250,9 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     // 40 bytes to surpass this limit)
     (*ip)->ihl = sizeof(struct iphdr) / 4;
 
+    // Update the total length field
+    (*ip)->tot_len = bpf_htons(data_end - (void *)(*ip));
+
     return 0;
 }
 
