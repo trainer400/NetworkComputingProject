@@ -153,7 +153,7 @@ static __always_inline __u32 find_best_load_serv() {
 
 static __always_inline __u32 assign_backend(struct udphdr *udp, struct iphdr *ip) {
     // Define the requested flow
-    struct flow flow;
+    static struct flow flow;
     flow.sprt = bpf_ntohs(udp->source);
     flow.dprt = bpf_ntohs(udp->dest);
     flow.saddr = ip->addrs.saddr;
@@ -264,6 +264,28 @@ static __always_inline int swap_mac(struct ethhdr *eth) {
     __builtin_memcpy(&temp, &eth->h_source, ETH_ALEN);
     __builtin_memcpy(&eth->h_source, &eth->h_dest, ETH_ALEN);
     __builtin_memcpy(&eth->h_dest, &temp, ETH_ALEN);
+
+    return 0;
+}
+
+static __always_inline int update_checksum(struct iphdr *ip) {
+
+    // Set the checksum field to 0 (as RFC 791 states)
+    ip->check = 0;
+
+    // Sum all the 16 bits (the number of iterations is /2 because we are computing 16 bits words)
+    __u32 sum;
+    __u16 *index = (__u16 *)ip;
+    for (int i = 0; i < sizeof(struct iphdr) / 2; i++) {
+        sum += *index;
+
+        // Increment the index to the next 16 bit word
+        index++;
+    }
+
+    // The checksum is the NOT operation of the sum + all the carries
+    // (https://en.wikipedia.org/wiki/Internet_checksum)
+    __u16 check = ~((sum & 0xffff) + ((sum >> 16) & 0xffff));
 
     return 0;
 }
