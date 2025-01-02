@@ -268,6 +268,23 @@ static __always_inline int swap_mac(struct ethhdr *eth) {
     return 0;
 }
 
+static __always_inline int set_dst_IP(__u32 srv_alloc, struct iphdr *ip) {
+    // Retrieve the stats
+    struct srv_stats *stats = bpf_map_lookup_elem(&srv_ips, &srv_alloc);
+
+    // Check if the stats are present
+    if (stats == NULL)
+        return -1;
+
+    // Set the src address as VIP (current dst address in the packet)
+    ip->saddr = ip->daddr;
+
+    // Set the dst address as the retrieved one
+    ip->daddr = stats->ip;
+
+    return 0;
+}
+
 static __always_inline int update_checksum(struct iphdr *ip) {
 
     // Set the checksum field to 0 (as RFC 791 states)
@@ -292,8 +309,6 @@ static __always_inline int update_checksum(struct iphdr *ip) {
 
     return 0;
 }
-
-static __always_inline void set_IP_hdr(__u32 srv_alloc, struct iphdr *ip) {}
 
 SEC("xdp")
 int l4_lb(struct xdp_md *ctx) {
@@ -351,14 +366,18 @@ int l4_lb(struct xdp_md *ctx) {
         return XDP_DROP;
     }
 
-    // Change destination IP and port and recompute the checksum
+    // Change destination IP
+    if (set_dst_IP(alloc, ip)) {
+        return XDP_DROP;
+    }
+
+    // Recompute the checksum
     if (update_checksum(ip)) {
         return XDP_DROP;
     }
 
     // Packet send
-
-    return XDP_PASS;
+    return XDP_TX;
 }
 
 char LICENSE[] SEC("license") = "Dual BSD/GPL";
