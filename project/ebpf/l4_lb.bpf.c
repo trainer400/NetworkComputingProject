@@ -274,7 +274,7 @@ static __always_inline int update_checksum(struct iphdr *ip) {
     ip->check = 0;
 
     // Sum all the 16 bits (the number of iterations is /2 because we are computing 16 bits words)
-    __u32 sum;
+    __u32 sum = 0;
     __u16 *index = (__u16 *)ip;
     for (int i = 0; i < sizeof(struct iphdr) / 2; i++) {
         sum += *index;
@@ -285,7 +285,10 @@ static __always_inline int update_checksum(struct iphdr *ip) {
 
     // The checksum is the NOT operation of the sum + all the carries
     // (https://en.wikipedia.org/wiki/Internet_checksum)
-    __u16 check = ~((sum & 0xffff) + ((sum >> 16) & 0xffff));
+    __u16 check = ~((sum & 0xffff) + (sum >> 16));
+
+    // Set the checksum into the appropriate field
+    ip->check = check;
 
     return 0;
 }
@@ -348,7 +351,10 @@ int l4_lb(struct xdp_md *ctx) {
         return XDP_DROP;
     }
 
-    // Change destination IP and recompute the checksum
+    // Change destination IP and port and recompute the checksum
+    if (update_checksum(ip)) {
+        return XDP_DROP;
+    }
 
     // Packet send
 
