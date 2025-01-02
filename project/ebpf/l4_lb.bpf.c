@@ -253,6 +253,9 @@ static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **et
     // Update the total length field
     (*ip)->tot_len = bpf_htons(data_end - (void *)(*ip));
 
+    // Set the current protocol to IP in IP encapsulation
+    (*ip)->protocol = IPPROTO_IPIP;
+
     return 0;
 }
 
