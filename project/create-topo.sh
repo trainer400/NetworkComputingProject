@@ -44,6 +44,9 @@ function config_gtw {
 
   # Config the gateway
   sudo ifconfig veth${2} ${fIP}/24 up
+
+  # Store the computed GW in a global variable
+  result=$fIP
 }
 
 # Enable verbose output
@@ -61,16 +64,22 @@ create_veth ${total_ips}
 # Configure the VIP
 sudo ip netns exec ns1 ifconfig veth1_ ${vip}/24
 config_gtw ${vip} '1'
-
+vip_gw=$result
 
 for (( i=2; i<=$total_ips;i++ )); do
 
   # Gather the server ip
   index=$(($i - 2))
   elem=$(echo "$yaml" | shyaml get-value backends.$index)
-  ip=$(echo "$elem" | shyaml get-value "ip")
+  server_ip=$(echo "$elem" | shyaml get-value "ip")
 
+  # Config the gateway
+  sudo ip netns exec ns${i} ifconfig veth${i}_ ${server_ip}/24 
+  config_gtw ${server_ip} ${i}
 
-  sudo ip netns exec ns${i} ifconfig veth${i}_ ${ip}/24 
-  config_gtw ${ip} ${i}
+  # Add the routing entry from VIP to the current IP
+  gw=$result
+  sudo ip netns exec ns${i} ip route add ${vip}/32 via ${gw}
+  sudo ip netns exec ns1 ip route add ${server_ip}/32 via ${vip_gw}
+  
 done
