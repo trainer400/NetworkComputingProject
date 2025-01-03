@@ -58,6 +58,9 @@ cleanup ${total_ips}
 # Errors are thrown by commands returning not 0 value
 set -e
 
+# Enable IP forwarding
+sudo sysctl -w net.ipv4.ip_forward=1
+
 # Create a network namespace and a veth pair for every needed ip
 create_veth ${total_ips}
 
@@ -65,6 +68,7 @@ create_veth ${total_ips}
 sudo ip netns exec ns1 ifconfig veth1_ ${vip}/24
 config_gtw ${vip} '1'
 vip_gw=$result
+sudo ip netns exec ns1 ip link set veth1_ up
 
 for (( i=2; i<=$total_ips;i++ )); do
 
@@ -81,5 +85,6 @@ for (( i=2; i<=$total_ips;i++ )); do
   gw=$result
   sudo ip netns exec ns${i} ip route add ${vip}/32 via ${gw}
   sudo ip netns exec ns1 ip route add ${server_ip}/32 via ${vip_gw}
+  sudo ip netns exec ns${i} ip link set veth${i}_ up
   
 done
