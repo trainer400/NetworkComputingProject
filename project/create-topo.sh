@@ -67,8 +67,12 @@ create_veth ${total_ips}
 # Configure the VIP
 sudo ip netns exec ns1 ifconfig veth1_ ${vip}/24
 config_gtw ${vip} '1'
-vip_gw=$result
 sudo ip netns exec ns1 ip link set veth1_ up
+vip_gw=$result
+
+# Update the ARP table for virtual address
+lb_mac=$(sudo ip netns exec ns1 ifconfig veth1_ | grep ether | awk '{print $2}')
+sudo arp -s ${vip} $lb_mac
 
 for (( i=2; i<=$total_ips;i++ )); do
 
@@ -86,5 +90,5 @@ for (( i=2; i<=$total_ips;i++ )); do
   sudo ip netns exec ns${i} ip route add ${vip}/32 via ${gw}
   sudo ip netns exec ns1 ip route add ${server_ip}/32 via ${vip_gw}
   sudo ip netns exec ns${i} ip link set veth${i}_ up
-  
+
 done
