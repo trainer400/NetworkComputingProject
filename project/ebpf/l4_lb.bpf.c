@@ -190,7 +190,6 @@ static __always_inline __u32 assign_backend(struct udphdr *udp, struct iphdr *ip
     }
 
     // Add the flow into the flow map
-    // TODO decide if it adds value to know wether the operation has success
     int ret = bpf_map_update_elem(&load_allocs, &flow, &best_srv, BPF_NOEXIST);
 
     return best_srv;
@@ -328,8 +327,6 @@ int l4_lb(struct xdp_md *ctx) {
     // Parse the ethernet header and check
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
     if (eth_type != bpf_ntohs(ETH_P_IP)) {
-        // TODO if not PASS, ICMP fails in ARP request and does not send the ping,
-        // decide if it is okay to maintain
         return XDP_PASS;
     }
 
@@ -351,10 +348,6 @@ int l4_lb(struct xdp_md *ctx) {
     if (len < 0) {
         return XDP_DROP;
     }
-
-    // TODO: remove the port filtering condition (DEBUG)
-    if (bpf_ntohs(udp->dest) < 100 || bpf_ntohs(udp->dest) > 1000)
-        return XDP_DROP;
 
     // Load balancing decisions
     __u32 alloc = assign_backend(udp, ip);
