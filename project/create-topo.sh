@@ -92,3 +92,6 @@ for (( i=2; i<=$total_ips;i++ )); do
   sudo ip netns exec ns${i} ip link set veth${i}_ up
 
 done
+
+# Exec the XDP_LOADER program into the VIP gateway to enable XDP_TX
+sudo ./xdp_loader -i veth1

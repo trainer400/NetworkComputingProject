@@ -27,7 +27,7 @@ INCLUDES := -I$(OUTPUT) -I../../libs/libbpf/include/uapi -I$(LIBARGPARSE_SRC) -I
 CFLAGS := -g -Wall -DLOG_USE_COLOR
 ALL_LDFLAGS := $(LDFLAGS) $(EXTRA_LDFLAGS) 
 
-APPS = l4_lb
+APPS = l4_lb xdp_loader
 
 HHDV2_CONFIG_DEPS = libnl-3.0
 HHDV2_PKG_CFLAGS := $(shell $(PKG_CONFIG) --cflags $(HHDV2_CONFIG_DEPS))
