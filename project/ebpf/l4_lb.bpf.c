@@ -278,9 +278,6 @@ static __always_inline int set_dst_IP(__u32 srv_alloc, struct iphdr *ip) {
     if (stats == NULL)
         return -1;
 
-    // Set the src address as VIP (current dst address in the packet)
-    ip->saddr = ip->daddr;
-
     // Set the dst address as the retrieved one
     ip->daddr = stats->ip;
 
