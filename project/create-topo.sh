@@ -70,6 +70,9 @@ config_gtw ${vip} '1'
 sudo ip netns exec ns1 ip link set veth1_ up
 vip_gw=$result
 
+# Set the gateway as default routing gate
+sudo ip netns exec ns1 ip route add default via ${vip_gw}
+
 # Update the ARP table for virtual address
 lb_mac=$(sudo ip netns exec ns1 ifconfig veth1_ | grep ether | awk '{print $2}')
 sudo arp -s ${vip} $lb_mac
@@ -87,10 +90,11 @@ for (( i=2; i<=$total_ips;i++ )); do
 
   # Add the routing entry from VIP to the current IP
   gw=$result
-  sudo ip netns exec ns${i} ip route add ${vip}/32 via ${gw}
-  sudo ip netns exec ns1 ip route add ${server_ip}/32 via ${vip_gw}
+  sudo ip netns exec ns${i} ip route add default via ${gw}
   sudo ip netns exec ns${i} ip link set veth${i}_ up
 
+  mac=$(sudo ip netns exec ns1 ifconfig veth1_ | grep ether | awk '{print $2}')
+  sudo arp -s ${gw} $mac -i veth1
 done
 
 # Exec the XDP_LOADER program into the VIP gateway to enable XDP_TX
