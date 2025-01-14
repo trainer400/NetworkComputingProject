@@ -9,16 +9,19 @@ import re
 import argparse
 import yaml
 
-from scapy.all import sendp, get_if_list, get_if_hwaddr
-from scapy.all import Ether, IP, UDP, TCP, Dot1Q
+from scapy.all import AsyncSniffer, sniff, sendp, get_if_list, Ether, get_if_hwaddr, IP, Raw, Dot1Q, UDP
 
 class FlowStats:
     packets = 0
     assigned_server = -1
 
 class ServerStats:
+    def __init__(self, iface):
+        self.iface = iface
+
     flows = 0
     packets = 0
+    iface = ""
 
 def get_if(interface : str):
     ifs=get_if_list()
@@ -72,6 +75,16 @@ def send_packet(vip: str, src_port: int, message: str):
     pkt = pkt /IP(dst=addr,tos=tos) /UDP(sport=src_port, dport=8000) /message
     sendp(pkt, iface=iface, verbose=False)
 
+def isNotOutgoing(my_mac):
+    my_mac = my_mac
+    def _isNotOutgoing(pkt):
+        return pkt[Ether].src != my_mac
+
+    return _isNotOutgoing
+
+def handle_pkt(pkt):
+    print("prova")
+
 def main():
     parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
     parser.add_argument("-y", "--yaml", required=False, type=str,default="config.yaml", help="The yaml configuration file [default: config.yaml]")
@@ -91,7 +104,7 @@ def main():
     backend_number = len(yaml_content["backends"])
 
     # Track the server_stats stats
-    stats = [ServerStats() for s in range(backend_number)]
+    stats = [ServerStats("veth" + str(s + 2)) for s in range(backend_number)]
     flows = [FlowStats() for f in range(num_flows)]
 
     # For each new flow, send an arbitrary number of packets from 5 to 10000
@@ -122,7 +135,11 @@ def main():
             print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}")
 
             for n in range(num_packet):
+                # filter = isNotOutgoing(get_if_hwaddr(stats[best].iface))
+                # f = AsyncSniffer(iface = stats[best].iface, store=False, prn = lambda x: handle_pkt(x), lfilter=filter)
+                # f.start()
                 send_packet(vip, src_port, "Test")
+                # f.join()
         else:
             break
 
