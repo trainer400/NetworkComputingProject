@@ -97,5 +97,8 @@ for (( i=2; i<=$total_ips;i++ )); do
   sudo arp -s ${gw} $mac -i veth1
 done
 
+# Accept and forward packets at the VIP gateway that use the gateway IP
+sysctl -w net.ipv4.conf.veth1.accept_local=1
+
 # Exec the XDP_LOADER program into the VIP gateway to enable XDP_TX
 sudo ./xdp_loader -i veth1
