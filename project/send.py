@@ -12,10 +12,13 @@ import yaml
 from scapy.all import sendp, get_if_list, get_if_hwaddr
 from scapy.all import Ether, IP, UDP, TCP, Dot1Q
 
+class FlowStats:
+    packets = 0
+    assigned_server = -1
+
 class ServerStats:
     flows = 0
     packets = 0
-    to_send_packets = 0
 
 def get_if(interface : str):
     ifs=get_if_list()
@@ -77,7 +80,7 @@ def main():
 
     # Get the passed arguments
     yaml_file = args.yaml
-    flows = args.flows
+    num_flows = args.flows
 
     # Load the configuration yaml file
     with open(yaml_file, "r") as file:
@@ -89,27 +92,39 @@ def main():
 
     # Track the server_stats stats
     stats = [ServerStats() for s in range(backend_number)]
+    flows = [FlowStats() for f in range(num_flows)]
 
     # For each new flow, send an arbitrary number of packets from 5 to 10000
-    for _ in range(flows):
+    while True:
+        # Select a random flow
+        f = random.randint(0, num_flows-1)
+
         # Determinant in discriminating the flows
-        src_port = _ + 8000
+        src_port = f + 8000
 
-        # Number of packet per flow
-        num_packet = random.randint(5, 300)
+        # Send packets only if the flow is not saturated
+        if flows[f].packets < 10000:
+            # Number of packet per flow
+            num_packet = random.randint(5, 100)
 
-        # Find the estimated best server
-        best = find_best_server(stats)
+            # Check if it is a new flow and it needs a new backend server allocation
+            new_server = flows[f].assigned_server == -1
+            
+            # Find the estimated best server if not already assigned
+            best = find_best_server(stats) if new_server else flows[f].assigned_server
+            flows[f].assigned_server = best
+            flows[f].packets += num_packet
 
-        # Update the stats
-        stats[best].flows += 1
-        stats[best].packets += num_packet
-        stats[best].to_send_packets = num_packet
+            # Update the server stats
+            stats[best].flows += 1 if new_server else 0
+            stats[best].packets += num_packet
 
-        print(f"Flow {_}, sending {num_packet} packets -> {best}")
+            print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}")
 
-        for n in range(num_packet):
-            send_packet(vip, src_port, "Test")
+            for n in range(num_packet):
+                send_packet(vip, src_port, "Test")
+        else:
+            break
 
 
 if __name__ == '__main__':
