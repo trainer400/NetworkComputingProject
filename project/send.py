@@ -76,8 +76,17 @@ def send_packet(vip: str, src_port: int, message: str):
     pkt = pkt /IP(dst=addr,tos=tos) /UDP(sport=src_port, dport=8000) /message
     sendp(pkt, iface=iface, verbose=False)
 
-def handle_pkt(pkt):
-    pass
+def check_packet(pkt) -> bool:
+    # Check if UDP is coherent
+    if not pkt.haslayer(UDP):
+        return False
+    
+    # Check the test message
+    msg = bytes(pkt[UDP].payload).decode('utf-8', errors='ignore')
+    if msg != "Test":
+        return False
+    
+    return True
 
 def main():
     parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
@@ -129,7 +138,7 @@ def main():
             print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
 
             # Create the sniffer to check the the received packets are correct in number and type
-            f = AsyncSniffer(filter="proto 4", iface = stats[best].iface, prn = lambda x:handle_pkt(x))
+            f = AsyncSniffer(filter="proto 4", iface = stats[best].iface)
             f.start()
 
             # Wait the sniffing process to start (for some reason f.running is not enough)
@@ -147,6 +156,16 @@ def main():
             if num_packet != len(f.results):
                 print(f"NUMBER OF PACKETS NOT EQUAL {num_packet} != {len(f.results)}")
                 break
+            
+            # Check the packets integrity
+            integrity = True
+            for pkt in f.results:
+                integrity = integrity and check_packet(pkt)
+            
+            if not integrity:
+                print("CORRUPTED PACKET FOUND!")
+                break
+            
         else:
             break
 
