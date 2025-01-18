@@ -8,6 +8,7 @@ from subprocess import Popen, PIPE
 import re
 import argparse
 import yaml
+import time
 
 from scapy.all import AsyncSniffer, sniff, sendp, get_if_list, Ether, get_if_hwaddr, IP, Raw, Dot1Q, UDP
 
@@ -75,15 +76,8 @@ def send_packet(vip: str, src_port: int, message: str):
     pkt = pkt /IP(dst=addr,tos=tos) /UDP(sport=src_port, dport=8000) /message
     sendp(pkt, iface=iface, verbose=False)
 
-def isNotOutgoing(my_mac):
-    my_mac = my_mac
-    def _isNotOutgoing(pkt):
-        return pkt[Ether].src != my_mac
-
-    return _isNotOutgoing
-
 def handle_pkt(pkt):
-    print("prova")
+    pass
 
 def main():
     parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
@@ -132,14 +126,27 @@ def main():
             stats[best].flows += 1 if new_server else 0
             stats[best].packets += num_packet
 
-            print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}")
+            print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
 
+            # Create the sniffer to check the the received packets are correct in number and type
+            f = AsyncSniffer(filter="proto 4", iface = stats[best].iface, prn = lambda x:handle_pkt(x))
+            f.start()
+
+            # Wait the sniffing process to start (for some reason f.running is not enough)
+            while not (hasattr(f, 'stop_cb') and f.running):
+                time.sleep(0.01)  # Poll every 10ms
+
+            # Send the determined number of packets
             for n in range(num_packet):
-                # filter = isNotOutgoing(get_if_hwaddr(stats[best].iface))
-                # f = AsyncSniffer(iface = stats[best].iface, store=False, prn = lambda x: handle_pkt(x), lfilter=filter)
-                # f.start()
                 send_packet(vip, src_port, "Test")
-                # f.join()
+
+            # Stop the sniffer
+            f.stop()
+
+            # Check the number of packets
+            if num_packet != len(f.results):
+                print(f"NUMBER OF PACKETS NOT EQUAL {num_packet} != {len(f.results)}")
+                break
         else:
             break
 
