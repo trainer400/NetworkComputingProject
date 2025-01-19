@@ -95,6 +95,22 @@ def send_packets(rcv_iface: str, num_packet: int, vip: str, src_port: int):
     return f.results
 
 def check_packet(pkt) -> bool:
+    # Check IP checksum
+    if not pkt.haslayer(IP):
+        return False
+    
+    # Get checksum
+    ip_hdr = pkt[IP]
+    checksum = ip_hdr.chksum
+
+    # Remove the checksum and recompute the packet
+    del ip_hdr.chksum
+    ip_hdr = ip_hdr.__class__(bytes(ip_hdr))
+
+    # Compare checksum
+    if checksum != ip_hdr.chksum:
+        return False
+
     # Check if UDP is coherent
     if not pkt.haslayer(UDP):
         return False
