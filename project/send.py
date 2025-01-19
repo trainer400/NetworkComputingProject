@@ -76,6 +76,24 @@ def send_packet(vip: str, src_port: int, message: str):
     pkt = pkt /IP(dst=addr,tos=tos) /UDP(sport=src_port, dport=8000) /message
     sendp(pkt, iface=iface, verbose=False)
 
+def send_packets(rcv_iface: str, num_packet: int, vip: str, src_port: int):
+    # Create the sniffer to check the the received packets are correct in number and type
+    f = AsyncSniffer(filter="proto 4", iface = rcv_iface)
+    f.start()
+
+    # Wait the sniffing process to start (for some reason f.running is not enough)
+    while not (hasattr(f, 'stop_cb') and f.running):
+        time.sleep(0.01)  # Poll every 10ms
+
+    # Send the determined number of packets
+    for n in range(num_packet):
+        send_packet(vip, src_port, "Test")
+
+    # Stop the sniffer
+    f.stop()
+
+    return f.results
+
 def check_packet(pkt) -> bool:
     # Check if UDP is coherent
     if not pkt.haslayer(UDP):
@@ -88,15 +106,24 @@ def check_packet(pkt) -> bool:
     
     return True
 
+def print_stats(stats : list[ServerStats]):
+    print("Backend Server Stats:")
+    
+    for i in range(len(stats)):
+        # Compute the final load and print stats
+        print(f"ServerID: {i}, Iface: {stats[i].iface}, Pkts: {stats[i].packets}, Flows: {stats[i].flows}, Load: {score(stats[i])}")
+
 def main():
     parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
     parser.add_argument("-y", "--yaml", required=False, type=str,default="config.yaml", help="The yaml configuration file [default: config.yaml]")
     parser.add_argument("-f", "--flows", type=int, required=True, help="Number of flows to generate")
+    parser.add_argument("-p", "--packets", type=int, required=False, default=10000, help="Number of maximum packets to send per flow")
     args = parser.parse_args()
 
     # Get the passed arguments
     yaml_file = args.yaml
     num_flows = args.flows
+    max_packets = args.packets
 
     # Load the configuration yaml file
     with open(yaml_file, "r") as file:
@@ -119,55 +146,39 @@ def main():
         src_port = f + 8000
 
         # Send packets only if the flow is not saturated
-        if flows[f].packets < 10000:
-            # Number of packet per flow
-            num_packet = random.randint(5, 100)
-
-            # Check if it is a new flow and it needs a new backend server allocation
-            new_server = flows[f].assigned_server == -1
-            
-            # Find the estimated best server if not already assigned
-            best = find_best_server(stats) if new_server else flows[f].assigned_server
-            flows[f].assigned_server = best
-            flows[f].packets += num_packet
-
-            # Update the server stats
-            stats[best].flows += 1 if new_server else 0
-            stats[best].packets += num_packet
-
-            print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
-
-            # Create the sniffer to check the the received packets are correct in number and type
-            f = AsyncSniffer(filter="proto 4", iface = stats[best].iface)
-            f.start()
-
-            # Wait the sniffing process to start (for some reason f.running is not enough)
-            while not (hasattr(f, 'stop_cb') and f.running):
-                time.sleep(0.01)  # Poll every 10ms
-
-            # Send the determined number of packets
-            for n in range(num_packet):
-                send_packet(vip, src_port, "Test")
-
-            # Stop the sniffer
-            f.stop()
-
-            # Check the number of packets
-            if num_packet != len(f.results):
-                print(f"NUMBER OF PACKETS NOT EQUAL {num_packet} != {len(f.results)}")
-                break
-            
-            # Check the packets integrity
-            integrity = True
-            for pkt in f.results:
-                integrity = integrity and check_packet(pkt)
-            
-            if not integrity:
-                print("CORRUPTED PACKET FOUND!")
-                break
-            
-        else:
+        if not(flows[f].packets < max_packets and max_packets-flows[f].packets > 5):
             break
+
+        # Number of packet per flow
+        num_packet = random.randint(5, min(300, max_packets-flows[f].packets))
+        
+        # Find the estimated best server if not already assigned
+        new_server = flows[f].assigned_server == -1
+        best = find_best_server(stats) if new_server else flows[f].assigned_server
+        flows[f].assigned_server = best
+        flows[f].packets += num_packet
+        stats[best].flows += 1 if new_server else 0
+        stats[best].packets += num_packet
+
+        # Send all the packets
+        print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
+        results = send_packets(stats[best].iface, num_packet, vip, src_port)
+
+        # Check the number of packets
+        if num_packet != len(results):
+            print(f"NUMBER OF PACKETS NOT EQUAL {num_packet} != {len(results)}")
+            break
+        
+        # Check the packets integrity
+        integrity = True
+        for pkt in results:
+            integrity = integrity and check_packet(pkt)
+        
+        if not integrity:
+            print("CORRUPTED PACKET FOUND!")
+            break
+
+    print_stats(stats)
 
 
 if __name__ == '__main__':
