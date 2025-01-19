@@ -144,8 +144,7 @@ int load_map_configuration(const char *config_file, struct l4_lb_bpf *skel) {
     }
 
     // For every ip in the backend, add an entry into the map
-    // TODO add check for max server number
-    for (int i = 0; i < ips->backends_count; i++) {
+    for (int i = 0; i < ips->backends_count && i < MAX_SERVER_NUM; i++) {
         // Convert the IPv4 IP to a 32bit integer
         struct in_addr ip;
         int result = inet_pton(AF_INET, ips->backends[i].ip, &ip);

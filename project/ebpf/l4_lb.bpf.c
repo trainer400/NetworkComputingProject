@@ -198,10 +198,10 @@ static __always_inline __u32 assign_backend(struct udphdr *udp, struct iphdr *ip
 static __always_inline int encapsulate_IP(struct xdp_md *ctx, struct ethhdr **eth,
                                           struct iphdr **ip) {
     // Define the byte shift as the dimension of the header. The teory is to copy the ip header,
-    // enlarge the packet of the same dimension, copy the IP and UDP data in a shifted position
-    // and add the new IP header for encapsulation.
-    // IMPORTANT: Options are dropped due to IHL forced to 5 due to __builtin_memcpy that needs
-    // constexpr values as dimension.
+    // enlarge the packet of the same dimension, copy the ethernet header in a shifted position and
+    // add the new IP header before the preious IP and UDP. IMPORTANT: Options are not copied inside
+    // the new IP header due to IHL forced to 5 due to __builtin_memcpy that needs constexpr values
+    // as dimension.
     long shift = sizeof(struct iphdr);
 
     // Copy the ETH and IP headers before invalidating the pointers
@@ -324,6 +324,7 @@ int l4_lb(struct xdp_md *ctx) {
     // Parse the ethernet header and check
     eth_type = parse_ethhdr(data, data_end, &nf_off, &eth);
     if (eth_type != bpf_ntohs(ETH_P_IP)) {
+        // ARP requests can go through
         return XDP_PASS;
     }
 
