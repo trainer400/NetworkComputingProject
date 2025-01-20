@@ -9,8 +9,11 @@ import re
 import argparse
 import yaml
 import time
+import logging
 
-from scapy.all import AsyncSniffer, sniff, sendp, get_if_list, Ether, get_if_hwaddr, IP, Raw, Dot1Q, UDP
+from scapy.all import AsyncSniffer, sendp, get_if_list, Ether, get_if_hwaddr, IP, UDP
+
+logger = logging.getLogger(__name__)
 
 class FlowStats:
     packets = 0
@@ -23,6 +26,38 @@ class ServerStats:
     flows = 0
     packets = 0
     iface = ""
+
+# Custom formatter for logging purposes (colored levelname and integer unix timestamp)
+class CustomFormatter(logging.Formatter):
+    COLORS = {
+        'DEBUG': '\033[91m',    # Red
+        'INFO': '\033[92m',     # Green
+    }
+    RESET = '\033[0m'  # Reset color
+
+    def format(self, record):
+        # Truncate the timestamp to integer
+        record.unix_time = int(record.created)
+
+        # Change color between DEBUG and INFO
+        levelname = record.levelname
+        if levelname in self.COLORS:
+            record.levelname = f"{self.COLORS[levelname]}{levelname}{self.RESET}"
+        return super().format(record)
+
+def configure_logger(verbose: bool):
+    logger.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # Create a handler that outputs logs to stdout
+    handler = logging.StreamHandler(sys.stdout)
+    handler.setLevel(logging.DEBUG if verbose else logging.INFO)
+
+    # Define a logging format
+    formatter = CustomFormatter('[%(unix_time)s][%(levelname)s] %(message)s')
+    handler.setFormatter(formatter)
+
+    # Add the handler to the logger
+    logger.addHandler(handler)
 
 def get_if(interface : str):
     ifs=get_if_list()
@@ -97,6 +132,7 @@ def send_packets(rcv_iface: str, num_packet: int, vip: str, src_port: int):
 def check_packet(pkt) -> bool:
     # Check IP checksum
     if not pkt.haslayer(IP):
+        logger.debug("Packet has not an IP layer!")
         return False
     
     # Get checksum
@@ -109,37 +145,44 @@ def check_packet(pkt) -> bool:
 
     # Compare checksum
     if checksum != ip_hdr.chksum:
+        logger.debug(f"Incorrect IP checksum {checksum} != {ip_hdr.chksum}!")
         return False
 
     # Check if UDP is coherent
     if not pkt.haslayer(UDP):
+        logger.debug("Packet has not a UDP layer!")
         return False
     
     # Check the test message
     msg = bytes(pkt[UDP].payload).decode('utf-8', errors='ignore')
     if msg != "Test":
+        logger.debug("Packet does not contain the 'Test' message")
         return False
     
     return True
 
 def print_stats(stats : list[ServerStats]):
-    print("Backend Server Stats:")
+    logger.info("Backend Server Stats:")
     
     for i in range(len(stats)):
         # Compute the final load and print stats
-        print(f"ServerID: {i}, Iface: {stats[i].iface}, Pkts: {stats[i].packets}, Flows: {stats[i].flows}, Load: {score(stats[i])}")
+        logger.info(f"ServerID: {i}, Iface: {stats[i].iface}, Pkts: {stats[i].packets}, Flows: {stats[i].flows}, Load: {score(stats[i])}")
 
 def main():
     parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
     parser.add_argument("-y", "--yaml", required=False, type=str,default="config.yaml", help="The yaml configuration file [default: config.yaml]")
     parser.add_argument("-f", "--flows", type=int, required=True, help="Number of flows to generate")
     parser.add_argument("-p", "--packets", type=int, required=False, default=10000, help="Number of maximum packets to send per flow")
+    parser.add_argument("-v", "--verbose", action="store_true", required=False, default=False, help="Output verbose when an error occurrs")
     args = parser.parse_args()
 
     # Get the passed arguments
     yaml_file = args.yaml
     num_flows = args.flows
     max_packets = args.packets
+
+    # Set logging level
+    configure_logger(args.verbose)
 
     # Load the configuration yaml file
     with open(yaml_file, "r") as file:
@@ -152,6 +195,8 @@ def main():
     # Track the server_stats stats
     stats = [ServerStats("veth" + str(s + 2)) for s in range(backend_number)]
     flows = [FlowStats() for f in range(num_flows)]
+
+    logger.debug("Starting Packet send!")
 
     # For each new flow, send an arbitrary number of packets from 5 to 10000
     while True:
@@ -166,7 +211,7 @@ def main():
             break
 
         # Number of packet per flow
-        num_packet = random.randint(5, min(300, max_packets-flows[f].packets))
+        num_packet = random.randint(5, min(100, max_packets-flows[f].packets))
         
         # Find the estimated best server if not already assigned
         new_server = flows[f].assigned_server == -1
@@ -177,12 +222,12 @@ def main():
         stats[best].packets += num_packet
 
         # Send all the packets
-        print(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
+        logger.info(f"Flow {f}, sending {num_packet} packets [{flows[f].packets}] -> {best}:{stats[best].iface}")
         results = send_packets(stats[best].iface, num_packet, vip, src_port)
 
         # Check the number of packets
         if num_packet != len(results):
-            print(f"NUMBER OF PACKETS NOT EQUAL {num_packet} != {len(results)}")
+            logger.debug(f"Did not receive the correct amount of packets {num_packet} != {len(results)}")
             break
         
         # Check the packets integrity
@@ -191,9 +236,10 @@ def main():
             integrity = integrity and check_packet(pkt)
         
         if not integrity:
-            print("CORRUPTED PACKET FOUND!")
+            logger.debug("Found corrupted packet!")
             break
 
+    logger.debug("Simulation terminated!")
     print_stats(stats)
 
 
