@@ -169,7 +169,7 @@ def print_stats(stats : list[ServerStats]):
         logger.info(f"ServerID: {i}, Iface: {stats[i].iface}, Pkts: {stats[i].packets}, Flows: {stats[i].flows}, Load: {score(stats[i])}")
 
 def main():
-    parser = argparse.ArgumentParser(description='Script to send packets to a specific destination')
+    parser = argparse.ArgumentParser(description='Script to test the load balancing')
     parser.add_argument("-y", "--yaml", required=False, type=str,default="config.yaml", help="The yaml configuration file [default: config.yaml]")
     parser.add_argument("-f", "--flows", type=int, required=True, help="Number of flows to generate")
     parser.add_argument("-p", "--packets", type=int, required=False, default=10000, help="Number of maximum packets to send per flow")
